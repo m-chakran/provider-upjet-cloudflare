@@ -237,6 +237,45 @@ schema-version-diff:
 .PHONY: cobertura submodules fallthrough run crds.clean
 
 # ====================================================================================
+# Local dev: build → push → deploy without GitHub Actions
+#
+# Set GHCR_OWNER (default m-chakran) and DEV_TAG (default dev-$(git rev-parse --short HEAD)).
+# Requires: docker logged in to ghcr.io with a PAT (read:packages, write:packages),
+# crossplane CLI, kubectl context pointing at the target cluster.
+
+GHCR_OWNER ?= m-chakran
+DEV_TAG    ?= dev-$(shell git rev-parse --short HEAD)
+DEV_IMAGE  ?= ghcr.io/$(GHCR_OWNER)/provider-upjet-cloudflare:$(DEV_TAG)
+
+.PHONY: dev-push dev-deploy dev-tail
+
+# Push the locally-built xpkg to ghcr.io with a dev tag.
+# Run `make -j2 build.all BUILD_ARGS=--load` first, or `make dev-deploy` to do both.
+dev-push:
+	@PKG=$$(find _output/xpkg -name "*.xpkg" -path "*linux_amd64*" | head -1); \
+	if [ -z "$$PKG" ]; then echo "No linux_amd64 xpkg found. Run: make -j2 build.all BUILD_ARGS=--load"; exit 1; fi; \
+	echo "Pushing $$PKG → $(DEV_IMAGE)"; \
+	crossplane xpkg push --package-files="$$PKG" "$(DEV_IMAGE)"
+
+# Build, push, and apply to the current kubectl context. Waits for Healthy.
+dev-deploy:
+	$(MAKE) -j2 build.all BUILD_ARGS=--load
+	$(MAKE) dev-push
+	@echo "Patching Provider to $(DEV_IMAGE)"
+	@kubectl patch provider.pkg.crossplane.io provider-upjet-cloudflare \
+		--type=merge -p '{"spec":{"package":"$(DEV_IMAGE)","packagePullPolicy":"Always"}}'
+	@echo "Waiting for Provider to be Healthy (up to 5m)..."
+	@kubectl wait provider.pkg.crossplane.io/provider-upjet-cloudflare \
+		--for=condition=Healthy --timeout=5m
+	@kubectl get provider.pkg.crossplane.io provider-upjet-cloudflare
+
+# Tail the latest provider pod's logs, filtering noise.
+dev-tail:
+	@POD=$$(kubectl get pods -n crossplane-system -l pkg.crossplane.io/provider=provider-upjet-cloudflare -o jsonpath='{.items[0].metadata.name}'); \
+	echo "Tailing $$POD"; \
+	kubectl logs -n crossplane-system "$$POD" -f | grep -vE "^[[:space:]]*>|Detected at:|controller-runtime\] log\.SetLogger"
+
+# ====================================================================================
 # Special Targets
 
 define CROSSPLANE_MAKE_HELP
