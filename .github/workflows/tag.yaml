@@ -1,7 +1,7 @@
 name: Tag
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
     inputs:
       version:
         description: 'Release version (e.g. v0.1.0)'
@@ -11,8 +11,38 @@ on:
         required: true
 
 jobs:
-  tag:
-    uses: crossplane-contrib/provider-workflows/.github/workflows/tag.yml@451c4dc6ad3691b0a702a997a0ac24e8bbc8bbaa # main
-    with:
-      version: ${{ github.event.inputs.version }}
-      message: ${{ github.event.inputs.message }}
+  create-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+          # NOTE: tag pushes made with GITHUB_TOKEN do not reliably trigger other
+          # workflows (e.g. Release). Use a PAT secret if you want tag->release.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.event.inputs.version }}"
+          MSG="${{ github.event.inputs.message }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Ensure we see remote tags too
+          git fetch --tags --force
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists. Nothing to do."
+            exit 0
+          fi
+
+          git tag -a "${TAG}" -m "${MSG}"
+          git push origin "refs/tags/${TAG}"

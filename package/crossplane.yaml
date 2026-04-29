@@ -2,6 +2,23 @@ apiVersion: meta.pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-upjet-cloudflare
+  annotations:
+    descriptionShort: |
+      A Crossplane provider for managing Cloudflare resources.
+    meta.crossplane.io/maintainer: Marouan CHAKRAN <marouane.chakran@gmail.com>
+    meta.crossplane.io/source: github.com/m-chakran/provider-upjet-cloudflare
+    meta.crossplane.io/license: Apache-2.0
+    friendly-name.meta.crossplane.io: Provider Cloudflare
+    meta.crossplane.io/description: |
+      A Crossplane provider for managing Cloudflare infrastructure.
+      Built with Upjet, wrapping the official Cloudflare Terraform provider to deliver declarative infrastructure management.
+    meta.crossplane.io/readme: |
+      `provider-upjet-cloudflare` is a Crossplane Provider designed to manage Cloudflare
+      resources through Kubernetes Custom Resources. Available resources
+      and their fields can be found in the [CRD Docs](https://doc.crds.dev/github.com/m-chakran/provider-upjet-cloudflare).
+
+      Feel free to create issues or contribute to the development at
+      [m-chakran/provider-upjet-cloudflare](https://github.com/m-chakran/provider-upjet-cloudflare).
 spec:
   capabilities:
     - SafeStart
