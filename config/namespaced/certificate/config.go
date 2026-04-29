@@ -73,6 +73,15 @@ func Configure(p *config.Provider) {
 		r.References["zone_id"] = config.Reference{
 			TerraformName: "cloudflare_zone",
 		}
+		// 'value' is a Dynamic-typed field. Marking it required would cause upjet
+		// to emit a CEL rule referencing self.forProvider.value, which Kubernetes
+		// rejects because the field has no typed schema (it uses
+		// x-kubernetes-preserve-unknown-fields). Force it optional so no rule is
+		// emitted; the underlying API still validates the value server-side.
+		if s, ok := r.TerraformResource.Schema["value"]; ok {
+			s.Required = false
+			s.Optional = true
+		}
 	})
 
 	p.AddResourceConfigurator("cloudflare_hostname_tls_setting_ciphers", func(r *config.Resource) {
