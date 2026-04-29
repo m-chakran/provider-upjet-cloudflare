@@ -214,7 +214,13 @@ func main() {
 		namespacedOpts.ChangeLogOptions = &clo
 	}
 
-	canSafeStart, err := canWatchCRD(context.TODO(), mgr)
+	// The SAR check below races with Crossplane's RBAC manager, which creates
+	// the ClusterRoleBinding for this provider asynchronously after the package
+	// revision goes Active. If the binding hasn't propagated when we ask, the
+	// SAR comes back denied and SafeStart is silently disabled, leaving the
+	// controller to crash on the first MR kind whose CRD isn't installed yet.
+	// Retry with backoff so a slow RBAC-propagation does not lose us SafeStart.
+	canSafeStart, err := canWatchCRDWithRetry(context.TODO(), mgr, log)
 	kingpin.FatalIfError(err, "SafeStart precheck failed")
 	if canSafeStart {
 		crdGate := new(gate.Gate[schema.GroupVersionKind])
@@ -234,6 +240,36 @@ func main() {
 	}
 
 	kingpin.FatalIfError(mgr.Start(ctrl.SetupSignalHandler()), "Cannot start controller manager")
+}
+
+// canWatchCRDWithRetry runs canWatchCRD repeatedly while the SAR comes back
+// denied, up to ~60s total. Errors short-circuit (apiserver-side problem, not
+// a propagation race). Returns the last result once we either get an Allowed
+// or run out of retries.
+func canWatchCRDWithRetry(ctx context.Context, mgr manager.Manager, log logging.Logger) (bool, error) {
+	delay := time.Second
+	const maxDelay = 8 * time.Second
+	const deadline = 60 * time.Second
+
+	start := time.Now()
+	for {
+		ok, err := canWatchCRD(ctx, mgr)
+		if err != nil || ok {
+			return ok, err
+		}
+		if time.Since(start) >= deadline {
+			return false, nil
+		}
+		log.Debug("RBAC for watching CRDs not yet granted, retrying", "delay", delay.String())
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < maxDelay {
+			delay *= 2
+		}
+	}
 }
 
 func canWatchCRD(ctx context.Context, mgr manager.Manager) (bool, error) {
